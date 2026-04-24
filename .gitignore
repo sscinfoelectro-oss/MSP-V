@@ -1,0 +1,7 @@
+node_modules/
+.next/
+node/
+node.zip
+.env
+dist/
+build/
