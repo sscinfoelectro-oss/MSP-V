@@ -336,9 +336,17 @@ app.put('/api/admin/services/:id', authenticateToken, isAdmin, (req, res) => {
   const { id } = req.params;
   const { name, location, rating, description, services_list, phone, working_hours, working_days, image_url, latitude, longitude, source, verified, reviews_count } = req.body;
   
-  console.log('🔧 PUT /api/admin/services/' + id, { name, location, rating, reviews_count });
+  // ✅ تسجيل كامل لجميع القيم التي تأتي من الواجهة الامامية لمعرفة المشكلة الحقيقية
+  console.log('🔧 ========== DATA RECEIVED FROM FRONTEND ==========');
+  console.log('working_hours =', working_hours, '| type:', typeof working_hours, '| is empty string:', working_hours === '');
+  console.log('working_days =', working_days, '| type:', typeof working_days);
+  console.log('image_url =', image_url);
+  console.log('🔧 =================================================');
   
   try {
+    // ✅ إصلاح مشكلة أنواع البيانات واضافة عملية التأكيد اليدوي
+    db.exec('BEGIN TRANSACTION');
+    
     const result = db.prepare(`
       UPDATE services 
       SET name = ?, location = ?, rating = ?, description = ?, services_list = ?, phone = ?, working_hours = ?, working_days = ?, image_url = ?, latitude = ?, longitude = ?, source = ?, verified = ?, reviews_count = ?
@@ -350,16 +358,20 @@ app.put('/api/admin/services/:id', authenticateToken, isAdmin, (req, res) => {
       description, 
       JSON.stringify(services_list), 
       phone, 
-      working_hours || null,
-      working_days || null,
-      image_url || null,
+      // ✅ إصلاح نهائي: اذا كان النص فارغ نحول الى NULL، غير ذلك نحفظ القيمة كما هي
+      working_hours !== undefined && working_hours !== '' ? working_hours : null,
+      working_days !== undefined && working_days !== '' ? working_days : null,
+      image_url !== undefined && image_url !== '' ? image_url : null,
       latitude ? parseFloat(latitude) : null,
       longitude ? parseFloat(longitude) : null,
-      source || 'local',
+      source !== undefined ? source : 'local',
       verified !== false ? 1 : 0,
-      reviews_count || 0,
+      // ✅ تحويل الى عدد صحيح ليتطابق مع نوع العمود في قاعدة البيانات
+      parseInt(reviews_count) || 0,
       id
     );
+
+    db.exec('COMMIT');
     
     console.log('🔧 Update result:', result);
     res.json({ success: true, message: '✅ Service mis à jour avec succès' });

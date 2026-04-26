@@ -202,6 +202,27 @@ function ServicesFinder() {
     }
   }
 
+  // ✅ تحويل اختصارات ايام العمل الى الاسم الكامل بالفرنسية عند العرض
+  const formatWorkingDays = (daysText) => {
+    if (!daysText) return '';
+    
+    const dayNames = {
+      'lun': 'lundi',
+      'mar': 'mardi',
+      'mer': 'mercredi',
+      'jeu': 'jeudi',
+      'ven': 'vendredi',
+      'sam': 'samedi',
+      'dim': 'dimanche'
+    };
+    
+    // تقسيم النص و تحويل كل اختصار
+    return daysText.split(',')
+      .map(dayKey => dayKey.trim())
+      .map(dayKey => dayNames[dayKey.toLowerCase()] || dayKey)
+      .join(', ');
+  };
+
   // ✅ وظيفة زر الاتصال بالفني
   const handleContactService = (service) => {
     if (!service.phone) {
@@ -244,16 +265,17 @@ function ServicesFinder() {
             {filteredServices.map(service => {
               const serviceList = JSON.parse(service.services_list || '[]')
               return (
-                <div key={service.id} style={{ background: '#000000', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                  <h3 style={{ color: '#ffffff', marginTop: 0 }}>{service.name}</h3>
-                  <p style={{ color: '#f8fafc' }}>📍 {service.location}</p>
+                <div key={service.id} style={{ background: '#000000', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '20px', alignItems: 'flex-start', position: 'relative' }}>
+                  <div style={{ flex: 1, minWidth: 0, width: '100%' }}>
+                    <h3 style={{ color: '#ffffff', marginTop: 0 }}>{service.name}</h3>
+                    <p style={{ color: '#f8fafc' }}>📍 {service.location}</p>
                   <p style={{ color: '#f8fafc' }}>⭐ {service.rating}/5</p>
                   <p style={{ color: '#f8fafc' }}>👍 {service.votes_up || 0} | 👎 {service.votes_down || 0} | 💬 {service.reviews_count || 0} avis</p>
                   {service.working_hours && (
                     <p style={{ color: '#f8fafc' }}>⏰ Horaires: {service.working_hours}</p>
                   )}
                   {service.working_days && (
-                    <p style={{ color: '#f8fafc' }}>📅 Jours: {service.working_days}</p>
+                    <p style={{ color: '#f8fafc' }}>📅 Jours: {formatWorkingDays(service.working_days)}</p>
                   )}
                   <p style={{ color: '#f8fafc', fontSize: '0.9rem', fontStyle: 'italic', marginBottom: '12px' }}>{service.description}</p>
                   <div style={{ marginBottom: '12px' }}>
@@ -292,6 +314,39 @@ function ServicesFinder() {
                     <button className="btn btn-primary" style={{flex: 1}} onClick={() => handleContactService(service)}>📞 Contacter</button>
                     {service.latitude && service.longitude && (
                       <button className="btn btn-secondary" style={{flex: 1}} onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${service.latitude},${service.longitude}`, '_blank')}>📍 Google Maps</button>
+                    )}
+                  </div>
+                  </div>
+                  <div style={{ flexShrink: 0, width: '120px', position: 'absolute', top: '20px', right: '20px' }}>
+                    {service.image_url ? (
+                      <img 
+                        src={service.image_url} 
+                        alt={service.name} 
+                        style={{ 
+                          width: '120px', 
+                          height: '120px', 
+                          borderRadius: '8px', 
+                          objectFit: 'cover',
+                          border: '2px solid rgba(255,0,0,0.3)'
+                        }} 
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div style={{ 
+                        width: '120px', 
+                        height: '120px', 
+                        borderRadius: '8px', 
+                        border: '2px dashed rgba(255,255,255,0.2)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'rgba(255,255,255,0.3)',
+                        fontSize: '0.8rem'
+                      }}>
+                        لا يوجد صورة
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1040,6 +1095,39 @@ function AdminDashboard() {
       console.error('❌ Erreur parsing: ' + e.message)
     }
 
+    // ✅ ✅ ✅ إصلاح المشكلة الحقيقية! ربط متغيرات وقت العمل بالطلب
+    // تحويل اختصارات ايام العمل الى الاسم الكامل بالفرنسية
+    const dayNames = {
+      'lun': 'lundi',
+      'mar': 'mardi',
+      'mer': 'mercredi',
+      'jeu': 'jeudi',
+      'ven': 'vendredi',
+      'sam': 'samedi',
+      'dim': 'dimanche'
+    };
+    
+    // تحويل ايام العمل المختارة الى نص بالاسم الكامل
+    let finalWorkingDays = '';
+    if (editWorkingDays.length > 0) {
+      finalWorkingDays = editWorkingDays.map(dayKey => dayNames[dayKey] || dayKey).join(', ');
+    } else {
+      finalWorkingDays = editingService.working_days;
+    }
+    
+    // تحويل مواعيد العمل الى نص
+    let finalWorkingHours = '';
+    if (editOpeningTime && editClosingTime) {
+      finalWorkingHours = `${editOpeningTime} - ${editClosingTime}`;
+    } else {
+      finalWorkingHours = editingService.working_hours;
+    }
+
+    console.log('🔧 ✅ ========== FINAL VALUES BEING SENT ==========');
+    console.log('✅ working_hours =', finalWorkingHours);
+    console.log('✅ working_days =', finalWorkingDays);
+    console.log('✅ =============================================');
+
     try {
       const res = await fetch(`/api/admin/services/${editingService.id}`, {
         method: 'PUT',
@@ -1055,9 +1143,9 @@ function AdminDashboard() {
           description: editingService.description || '',
           services_list: servicesArray,
           phone: editingService.phone || '',
-          working_hours: editingService.working_hours || '',
-          working_days: editingService.working_days || '',
-          image_url: editingService.image_url || '',
+          working_hours: finalWorkingHours,
+          working_days: finalWorkingDays,
+          image_url: editingService.image_url,
           source: editingService.source || 'local',
           verified: editingService.verified !== 0 && editingService.verified !== false
         })
