@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "outputDirectory": "frontend/dist",
+  "functions": {
+    "backend/server.js": {
+      "runtime": "@vercel/node@2.8.17",
+      "maxDuration": 10
+    }
+  },
+  "routes": [
+    { "src": "/api/(.*)", "dest": "backend/server.js" },
+    { "src": "/(.*\\.(js|css|png|jpg|jpeg|gif|ico|svg|json))$", "dest": "/$1" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  }
+}
