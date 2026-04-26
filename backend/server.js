@@ -2,7 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const db = require('./database');
+const pool = require('./database');
+require('dotenv').config();
 
 // ✅ دالة تسجيل الوقت لكل رسالة
 const logTime = (message) => {
@@ -44,7 +45,7 @@ const isAdmin = (req, res, next) => {
 };
 
 // 🔐 واجهات المصادقة
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const { phone, password, carType } = req.body;
 
   if (!phone || !password || !carType) {
@@ -53,16 +54,17 @@ app.post('/api/auth/register', (req, res) => {
 
   try {
     const hashedPassword = bcrypt.hashSync(password, 10);
-      const sqlQuery = 'INSERT INTO users (phone, password, vehicle_type, role) VALUES (?, ?, ?, ?)';
-      logTime(sqlQuery);
-      const result = db.prepare(sqlQuery).run(phone, hashedPassword, carType, 'user');
+    const sqlQuery = 'INSERT INTO users (phone, password, vehicle_type, role) VALUES ($1, $2, $3, $4) RETURNING id';
+    logTime(sqlQuery);
+    const result = await pool.query(sqlQuery, [phone, hashedPassword, carType, 'user']);
+    const userId = result.rows[0].id;
 
-    const token = jwt.sign({ id: result.lastInsertRowid, phone, role: 'user' }, JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign({ id: userId, phone, role: 'user' }, JWT_SECRET, { expiresIn: '24h' });
     
     res.json({
       token,
       user: {
-        id: result.lastInsertRowid,
+        id: userId,
         phone,
         vehicle_type: carType,
         role: 'user'
@@ -73,12 +75,14 @@ app.post('/api/auth/register', (req, res) => {
   }
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { phone, password } = req.body;
 
-  const sqlUser = 'SELECT * FROM users WHERE phone = ?';
+  const sqlUser = 'SELECT * FROM users WHERE phone = $1';
   logTime(sqlUser);
-  const user = db.prepare(sqlUser).get(phone);
+  const result = await pool.query(sqlUser, [phone]);
+  const user = result.rows[0];
+  
   if (!user) return res.status(401).json({ error: 'رقم الهاتف او كلمة المرور خاطئة' });
 
   if (!bcrypt.compareSync(password, user.password)) {
@@ -107,26 +111,26 @@ app.post('/api/auth/logout', authenticateToken, (req, res) => {
 });
 
 // 🛠️ واجهات الجراجات
-app.get('/api/garages', (req, res) => {
+app.get('/api/garages', async (req, res) => {
   const sqlGarages = 'SELECT * FROM garages ORDER BY rating DESC';
   logTime(sqlGarages);
-  const garages = db.prepare(sqlGarages).all();
-  res.json({ garages });
+  const result = await pool.query(sqlGarages);
+  res.json({ garages: result.rows });
 });
 
 // 📍 واجهات جراجات Google Maps الخارجية
-app.get('/api/garages/external', (req, res) => {
-  const sqlGarages = 'SELECT * FROM garages WHERE verified = 0 AND source = "Google Maps" ORDER BY rating DESC';
+app.get('/api/garages/external', async (req, res) => {
+  const sqlGarages = 'SELECT * FROM garages WHERE verified = false AND source = $1 ORDER BY rating DESC';
   logTime(sqlGarages);
-  const garages = db.prepare(sqlGarages).all();
-  res.json({ garages });
+  const result = await pool.query(sqlGarages, ['Google Maps']);
+  res.json({ garages: result.rows });
 });
 
 // ✅ واجهة الموافقة على الجراج (تحويله إلى معتمد)
-app.post('/api/garages/external/:id/verify', authenticateToken, isAdmin, (req, res) => {
+app.post('/api/garages/external/:id/verify', authenticateToken, isAdmin, async (req, res) => {
   const { id } = req.params;
   try {
-    db.prepare('UPDATE garages SET verified = 1 WHERE id = ?').run(id);
+    await pool.query('UPDATE garages SET verified = true WHERE id = $1', [id]);
     res.json({ success: true, message: '✅ تم اعتماد الجراج بنجاح' });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -134,13 +138,14 @@ app.post('/api/garages/external/:id/verify', authenticateToken, isAdmin, (req, r
 });
 
 // 👍 نظام التصويت للجراجات
-app.post('/api/garages/:id/vote', (req, res) => {
+app.post('/api/garages/:id/vote', async (req, res) => {
   const { id } = req.params;
   const { type } = req.body; // 'up' or 'down'
   
   try {
     // ✅ جلب الجراج الحالي
-    const garage = db.prepare('SELECT rating, reviews_count, votes_up, votes_down FROM garages WHERE id = ?').get(id);
+    const garageResult = await pool.query('SELECT rating, reviews_count, votes_up, votes_down FROM garages WHERE id = $1', [id]);
+    const garage = garageResult.rows[0];
     
     let totalPoints = garage.rating * garage.reviews_count;
     let newReviewsCount = garage.reviews_count + 1;
@@ -163,8 +168,10 @@ app.post('/api/garages/:id/vote', (req, res) => {
     const newRating = totalPoints / newReviewsCount;
     
     // ✅ تحديث الجراج
-    db.prepare('UPDATE garages SET rating = ?, reviews_count = ?, votes_up = ?, votes_down = ? WHERE id = ?')
-      .run(newRating, newReviewsCount, newVotesUp, newVotesDown, id);
+    await pool.query(
+      'UPDATE garages SET rating = $1, reviews_count = $2, votes_up = $3, votes_down = $4 WHERE id = $5',
+      [newRating, newReviewsCount, newVotesUp, newVotesDown, id]
+    );
     
     res.json({ 
       success: true, 
@@ -181,21 +188,22 @@ app.post('/api/garages/:id/vote', (req, res) => {
 });
 
 // 🔧 واجهات الخدمات المنزلية
-app.get('/api/services', (req, res) => {
+app.get('/api/services', async (req, res) => {
   const sqlServices = 'SELECT * FROM services ORDER BY rating DESC';
   logTime(sqlServices);
-  const services = db.prepare(sqlServices).all();
-  res.json({ services });
+  const result = await pool.query(sqlServices);
+  res.json({ services: result.rows });
 });
 
 // 👍 نظام التصويت للخدمات
-app.post('/api/services/:id/vote', (req, res) => {
+app.post('/api/services/:id/vote', async (req, res) => {
   const { id } = req.params;
   const { type } = req.body; // 'up' or 'down'
   
   try {
     // ✅ جلب الخدمة الحالية
-    const service = db.prepare('SELECT rating, reviews_count, votes_up, votes_down FROM services WHERE id = ?').get(id);
+    const serviceResult = await pool.query('SELECT rating, reviews_count, votes_up, votes_down FROM services WHERE id = $1', [id]);
+    const service = serviceResult.rows[0];
     
     let totalPoints = service.rating * service.reviews_count;
     let newReviewsCount = service.reviews_count + 1;
@@ -218,8 +226,10 @@ app.post('/api/services/:id/vote', (req, res) => {
     const newRating = totalPoints / newReviewsCount;
     
     // ✅ تحديث الخدمة
-    db.prepare('UPDATE services SET rating = ?, reviews_count = ?, votes_up = ?, votes_down = ? WHERE id = ?')
-      .run(newRating, newReviewsCount, newVotesUp, newVotesDown, id);
+    await pool.query(
+      'UPDATE services SET rating = $1, reviews_count = $2, votes_up = $3, votes_down = $4 WHERE id = $5',
+      [newRating, newReviewsCount, newVotesUp, newVotesDown, id]
+    );
     
     res.json({ 
       success: true, 
@@ -236,13 +246,13 @@ app.post('/api/services/:id/vote', (req, res) => {
 });
 
 // ⚙️ واجهات ادارة الجراجات (للادمن فقط)
-app.post('/api/admin/garages', authenticateToken, isAdmin, (req, res) => {
+app.post('/api/admin/garages', authenticateToken, isAdmin, async (req, res) => {
   const { name, location, rating, services, phone, address, working_hours, working_days, image_url, latitude, longitude, source, verified, reviews_count } = req.body;
   try {
-    const result = db.prepare(`
+    const result = await pool.query(`
       INSERT INTO garages (name, location, rating, services, phone, address, working_hours, working_days, image_url, latitude, longitude, source, verified, reviews_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id
+    `, [
       name, 
       location, 
       rating || 5.0, 
@@ -255,25 +265,25 @@ app.post('/api/admin/garages', authenticateToken, isAdmin, (req, res) => {
       latitude ? parseFloat(latitude) : null, 
       longitude ? parseFloat(longitude) : null,
       source || 'local',
-      verified !== false ? 1 : 0,
+      verified !== false ? true : false,
       reviews_count || 0
-    );
+    ]);
     
-    res.json({ success: true, id: result.lastInsertRowid, message: '✅ Garage ajouté avec succès' });
+    res.json({ success: true, id: result.rows[0].id, message: '✅ Garage ajouté avec succès' });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-app.put('/api/admin/garages/:id', authenticateToken, isAdmin, (req, res) => {
+app.put('/api/admin/garages/:id', authenticateToken, isAdmin, async (req, res) => {
   const { id } = req.params;
   const { name, location, rating, services, phone, address, working_hours, working_days, image_url, latitude, longitude, source, verified, reviews_count } = req.body;
   try {
-    db.prepare(`
+    await pool.query(`
       UPDATE garages 
-      SET name = ?, location = ?, rating = ?, services = ?, phone = ?, address = ?, working_hours = ?, working_days = ?, image_url = ?, latitude = ?, longitude = ?, source = ?, verified = ?, reviews_count = ?
-      WHERE id = ?
-    `).run(
+      SET name = $1, location = $2, rating = $3, services = $4, phone = $5, address = $6, working_hours = $7, working_days = $8, image_url = $9, latitude = $10, longitude = $11, source = $12, verified = $13, reviews_count = $14
+      WHERE id = $15
+    `, [
       name, 
       location, 
       rating, 
@@ -286,10 +296,10 @@ app.put('/api/admin/garages/:id', authenticateToken, isAdmin, (req, res) => {
       latitude ? parseFloat(latitude) : null,
       longitude ? parseFloat(longitude) : null,
       source || 'local',
-      verified !== false ? 1 : 0,
+      verified !== false ? true : false,
       reviews_count || 0,
       id
-    );
+    ]);
     
     res.json({ success: true, message: '✅ Garage mis à jour avec succès' });
   } catch (err) {
@@ -297,19 +307,19 @@ app.put('/api/admin/garages/:id', authenticateToken, isAdmin, (req, res) => {
   }
 });
 
-app.delete('/api/admin/garages/:id', authenticateToken, isAdmin, (req, res) => {
-  db.prepare('DELETE FROM garages WHERE id = ?').run(req.params.id);
+app.delete('/api/admin/garages/:id', authenticateToken, isAdmin, async (req, res) => {
+  await pool.query('DELETE FROM garages WHERE id = $1', [req.params.id]);
   res.json({ success: true, message: '✅ Garage supprimé avec succès' });
 });
 
 // ⚙️ واجهات ادارة الخدمات (للادمن فقط)
-app.post('/api/admin/services', authenticateToken, isAdmin, (req, res) => {
+app.post('/api/admin/services', authenticateToken, isAdmin, async (req, res) => {
   const { name, location, rating, description, services_list, phone, working_hours, working_days, image_url, latitude, longitude, source, verified, reviews_count } = req.body;
   try {
-    const result = db.prepare(`
+    const result = await pool.query(`
       INSERT INTO services (name, location, rating, description, services_list, phone, working_hours, working_days, image_url, latitude, longitude, source, verified, reviews_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id
+    `, [
       name, 
       location, 
       rating || 5.0, 
@@ -322,17 +332,17 @@ app.post('/api/admin/services', authenticateToken, isAdmin, (req, res) => {
       latitude ? parseFloat(latitude) : null,
       longitude ? parseFloat(longitude) : null,
       source || 'local',
-      verified !== false ? 1 : 0,
+      verified !== false ? true : false,
       reviews_count || 0
-    );
+    ]);
     
-    res.json({ success: true, id: result.lastInsertRowid, message: '✅ Service ajouté avec succès' });
+    res.json({ success: true, id: result.rows[0].id, message: '✅ Service ajouté avec succès' });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-app.put('/api/admin/services/:id', authenticateToken, isAdmin, (req, res) => {
+app.put('/api/admin/services/:id', authenticateToken, isAdmin, async (req, res) => {
   const { id } = req.params;
   const { name, location, rating, description, services_list, phone, working_hours, working_days, image_url, latitude, longitude, source, verified, reviews_count } = req.body;
   
@@ -344,14 +354,11 @@ app.put('/api/admin/services/:id', authenticateToken, isAdmin, (req, res) => {
   console.log('🔧 =================================================');
   
   try {
-    // ✅ إصلاح مشكلة أنواع البيانات واضافة عملية التأكيد اليدوي
-    db.exec('BEGIN TRANSACTION');
-    
-    const result = db.prepare(`
+    await pool.query(`
       UPDATE services 
-      SET name = ?, location = ?, rating = ?, description = ?, services_list = ?, phone = ?, working_hours = ?, working_days = ?, image_url = ?, latitude = ?, longitude = ?, source = ?, verified = ?, reviews_count = ?
-      WHERE id = ?
-    `).run(
+      SET name = $1, location = $2, rating = $3, description = $4, services_list = $5, phone = $6, working_hours = $7, working_days = $8, image_url = $9, latitude = $10, longitude = $11, source = $12, verified = $13, reviews_count = $14
+      WHERE id = $15
+    `, [
       name, 
       location, 
       rating, 
@@ -365,15 +372,13 @@ app.put('/api/admin/services/:id', authenticateToken, isAdmin, (req, res) => {
       latitude ? parseFloat(latitude) : null,
       longitude ? parseFloat(longitude) : null,
       source !== undefined ? source : 'local',
-      verified !== false ? 1 : 0,
+      verified !== false ? true : false,
       // ✅ تحويل الى عدد صحيح ليتطابق مع نوع العمود في قاعدة البيانات
       parseInt(reviews_count) || 0,
       id
-    );
-
-    db.exec('COMMIT');
+    ]);
     
-    console.log('🔧 Update result:', result);
+    console.log('🔧 Update completed successfully');
     res.json({ success: true, message: '✅ Service mis à jour avec succès' });
   } catch (err) {
     console.error('🔧 Update error:', err.message);
@@ -381,17 +386,17 @@ app.put('/api/admin/services/:id', authenticateToken, isAdmin, (req, res) => {
   }
 });
 
-app.delete('/api/admin/services/:id', authenticateToken, isAdmin, (req, res) => {
-  db.prepare('DELETE FROM services WHERE id = ?').run(req.params.id);
+app.delete('/api/admin/services/:id', authenticateToken, isAdmin, async (req, res) => {
+  await pool.query('DELETE FROM services WHERE id = $1', [req.params.id]);
   res.json({ success: true, message: '✅ Service supprimé avec succès' });
 });
 
 // ✅ واجهة الاحصاءات العامة للجميع بدون صلاحيات (للصفحة الرئيسية و صفحة about)
-app.get('/api/public/stats', (req, res) => {
+app.get('/api/public/stats', async (req, res) => {
   const sqlCountUsers = 'SELECT COUNT(*) as count FROM users';
   logTime(sqlCountUsers);
-  const usersResult = db.prepare(sqlCountUsers).get();
-  const totalUsers = usersResult ? usersResult.count : 0;
+  const usersResult = await pool.query(sqlCountUsers);
+  const totalUsers = usersResult.rows[0] ? parseInt(usersResult.rows[0].count) : 0;
 
   logTime(`✅ Public stats: Users=${totalUsers}`);
 
@@ -401,26 +406,26 @@ app.get('/api/public/stats', (req, res) => {
 });
 
 // ⚙️ واجهات الادمن
-app.get('/api/admin/stats', authenticateToken, isAdmin, (req, res) => {
+app.get('/api/admin/stats', authenticateToken, isAdmin, async (req, res) => {
   const sqlCountVehicles = 'SELECT COUNT(*) as count FROM vehicles';
   logTime(sqlCountVehicles);
-  const vehiclesResult = db.prepare(sqlCountVehicles).get();
-  const totalVehicles = vehiclesResult ? vehiclesResult.count : 0;
+  const vehiclesResult = await pool.query(sqlCountVehicles);
+  const totalVehicles = vehiclesResult.rows[0] ? parseInt(vehiclesResult.rows[0].count) : 0;
 
   const sqlCountUsers = 'SELECT COUNT(*) as count FROM users';
   logTime(sqlCountUsers);
-  const usersResult = db.prepare(sqlCountUsers).get();
-  const totalUsers = usersResult ? usersResult.count : 0;
+  const usersResult = await pool.query(sqlCountUsers);
+  const totalUsers = usersResult.rows[0] ? parseInt(usersResult.rows[0].count) : 0;
 
-  const sqlCountActive = 'SELECT COUNT(*) as count FROM diagnostics WHERE resolved = 0';
+  const sqlCountActive = 'SELECT COUNT(*) as count FROM diagnostics WHERE resolved = false';
   logTime(sqlCountActive);
-  const activeResult = db.prepare(sqlCountActive).get();
-  const activeDiagnostics = activeResult ? activeResult.count : 0;
+  const activeResult = await pool.query(sqlCountActive);
+  const activeDiagnostics = activeResult.rows[0] ? parseInt(activeResult.rows[0].count) : 0;
 
-  const sqlCountCritical = "SELECT COUNT(*) as count FROM diagnostics WHERE severity = 'critical' AND resolved = 0";
+  const sqlCountCritical = "SELECT COUNT(*) as count FROM diagnostics WHERE severity = 'critical' AND resolved = false";
   logTime(sqlCountCritical);
-  const criticalResult = db.prepare(sqlCountCritical).get();
-  const criticalCount = criticalResult ? criticalResult.count : 0;
+  const criticalResult = await pool.query(sqlCountCritical);
+  const criticalCount = criticalResult.rows[0] ? parseInt(criticalResult.rows[0].count) : 0;
 
   logTime(`✅ Stats: Users=${totalUsers}, Vehicles=${totalVehicles}`);
 
@@ -432,33 +437,21 @@ app.get('/api/admin/stats', authenticateToken, isAdmin, (req, res) => {
   });
 });
 
-// ✅ واجهة الاحصاءات العامة للجميع بدون صلاحيات
-app.get('/api/public/stats', (req, res) => {
-  const sqlCountUsers = 'SELECT COUNT(*) as count FROM users';
-  logTime(sqlCountUsers);
-  const usersResult = db.prepare(sqlCountUsers).get();
-  const totalUsers = usersResult ? usersResult.count : 0;
-
-  logTime(`✅ Public stats: Users=${totalUsers}`);
-
-  res.json({
-    totalUsers
-  });
-});
-
-app.get('/api/admin/users', authenticateToken, isAdmin, (req, res) => {
+app.get('/api/admin/users', authenticateToken, isAdmin, async (req, res) => {
   const sqlUsers = 'SELECT id, phone, vehicle_type, role, created_at FROM users';
   logTime(sqlUsers);
-  const users = db.prepare(sqlUsers).all();
-  res.json({ users });
+  const result = await pool.query(sqlUsers);
+  res.json({ users: result.rows });
 });
 
-app.post('/api/admin/vehicles', authenticateToken, isAdmin, (req, res) => {
+app.post('/api/admin/vehicles', authenticateToken, isAdmin, async (req, res) => {
   const { id, name, year, status } = req.body;
   
   try {
-    db.prepare('INSERT INTO vehicles (id, name, year, status, lastInspection) VALUES (?, ?, ?, ?, datetime("now"))')
-      .run(id, name, year, status || 'ok');
+    await pool.query(
+      'INSERT INTO vehicles (id, name, year, status, lastInspection) VALUES ($1, $2, $3, $4, NOW())',
+      [id, name, year, status || 'ok']
+    );
     
     res.json({ success: true, message: 'تم اضافة المركبة بنجاح' });
   } catch (err) {
@@ -466,23 +459,23 @@ app.post('/api/admin/vehicles', authenticateToken, isAdmin, (req, res) => {
   }
 });
 
-app.delete('/api/admin/vehicles/:id', authenticateToken, isAdmin, (req, res) => {
-  db.prepare('DELETE FROM diagnostics WHERE vehicle_id = ?').run(req.params.id);
-  db.prepare('DELETE FROM vehicles WHERE id = ?').run(req.params.id);
+app.delete('/api/admin/vehicles/:id', authenticateToken, isAdmin, async (req, res) => {
+  await pool.query('DELETE FROM diagnostics WHERE vehicle_id = $1', [req.params.id]);
+  await pool.query('DELETE FROM vehicles WHERE id = $1', [req.params.id]);
   
   res.json({ success: true, message: 'تم حذف المركبة بنجاح' });
 });
 
 // ✅ واجهة حذف مستخدم
-app.delete('/api/admin/users/:id', authenticateToken, isAdmin, (req, res) => {
+app.delete('/api/admin/users/:id', authenticateToken, isAdmin, async (req, res) => {
   const { id } = req.params;
   
   // ✅ لا نسمح بحذف الحساب الادمن الرئيسي
-  if (id === 1) {
+  if (id === '1') {
     return res.status(400).json({ error: 'لا يمكن حذف حساب المدير الرئيسي' });
   }
 
-  db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  await pool.query('DELETE FROM users WHERE id = $1', [id]);
   
   logTime(`✅ المستخدم رقم ${id} تم حذفه بنجاح`);
   res.json({ success: true, message: '✅ تم حذف المستخدم بنجاح' });
@@ -492,13 +485,13 @@ app.get('/api/status', (req, res) => {
   res.json({ 
     platform: 'Smart Automotive Diagnostic Platform', 
     uptime: process.uptime(),
-    database: '✅ SQLite متصل بنجاح'
+    database: '✅ PostgreSQL متصل بنجاح'
   });
 });
 
 app.listen(port, () => {
   logTime(`✅ Serveur démarré sur: http://localhost:${port}`);
-  logTime(`✅ Base de données SQLite connectée`);
+  logTime(`✅ Base de données PostgreSQL connectée`);
   logTime(`✅ Système d'authentification opérationnel`);
   logTime(`✅ Tableau de bord administrateur prêt`);
   console.log(`\n📌 Compte administrateur par défaut: admin / admin123\n`);
