@@ -1,4 +1,4 @@
- import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom'
 import heroBg from './assets/garage-bg.jpeg'
 import logo from './assets/ssc-logo.png'
@@ -775,6 +775,52 @@ function AdminDashboard() {
   const [editingService, setEditingService] = useState(null)
   const [newGarage, setNewGarage] = useState({name: '', location: '', rating: '5.0', reviews_count: '0', phone: '', address: '', working_hours: '', working_days: '', image_url: '', latitude: '', longitude: '', services: ''})
   const [newService, setNewService] = useState({name: '', location: '', rating: '5.0', reviews_count: '0', phone: '', description: '', working_hours: '', working_days: '', image_url: '', latitude: '', longitude: '', services_list: ''})
+  
+  // ✅ حالة أيام العمل لأزرار الاختيار
+  const [workingDays, setWorkingDays] = useState([])
+  const [editWorkingDays, setEditWorkingDays] = useState([])
+  
+  // ✅ حالة مواعيد العمل
+  const [openingTime, setOpeningTime] = useState('08:00')
+  const [closingTime, setClosingTime] = useState('18:00')
+  const [editOpeningTime, setEditOpeningTime] = useState('08:00')
+  const [editClosingTime, setEditClosingTime] = useState('18:00')
+  const [sameHoursForAllDays, setSameHoursForAllDays] = useState(true)
+  
+  // ✅ قائمة بالاواقيت الزمنية لكل 30 دقيقة
+  const timeSlots = []
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 30) {
+      const hour = h.toString().padStart(2, '0')
+      const minute = m.toString().padStart(2, '0')
+      timeSlots.push(`${hour}:${minute}`)
+    }
+  }
+
+  // ✅ دالة تبديل اختيار يوم واحد
+  const toggleDay = (dayKey, isEdit = false) => {
+    const targetState = isEdit ? editWorkingDays : workingDays
+    const setTarget = isEdit ? setEditWorkingDays : setWorkingDays
+    
+    if (targetState.includes(dayKey)) {
+      setTarget(targetState.filter(d => d !== dayKey))
+    } else {
+      setTarget([...targetState, dayKey])
+    }
+  }
+
+  // ✅ دالة اختيار جميع الايام
+  const toggleAllDays = (isEdit = false) => {
+    const allDays = ['lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim']
+    const setTarget = isEdit ? setEditWorkingDays : setWorkingDays
+    const currentState = isEdit ? editWorkingDays : workingDays
+    
+    if (currentState.length === 7) {
+      setTarget([])
+    } else {
+      setTarget(allDays)
+    }
+  }
 
   const loadAdminData = async () => {
     const token = localStorage.getItem('admin_token')
@@ -981,7 +1027,6 @@ function AdminDashboard() {
 
   // ✅ دالة تحديث خدمة
   const handleUpdateService = async () => {
-    alert('🔧 Début de la mise à jour...')
     const token = localStorage.getItem('admin_token')
     if (!editingService.name || !editingService.location) {
       setMessage('❌ Nom et localisation sont obligatoires.')
@@ -992,11 +1037,10 @@ function AdminDashboard() {
     try {
       servicesArray = editingService.services_list.split(',').map(s => s.trim()).filter(s => s)
     } catch (e) {
-      alert('❌ Erreur parsing: ' + e.message)
+      console.error('❌ Erreur parsing: ' + e.message)
     }
 
     try {
-      alert('🔧 Envoi de la requête...')
       const res = await fetch(`/api/admin/services/${editingService.id}`, {
         method: 'PUT',
         headers: { 
@@ -1019,21 +1063,21 @@ function AdminDashboard() {
         })
       })
 
-      alert('🔧 Réponse reçue! Status: ' + res.status)
       const data = await res.json()
-      alert('🔧 Données: ' + JSON.stringify(data))
+      console.log('🔧 Réponse reçue! Status: ' + res.status)
+      console.log('🔧 Données: ' + JSON.stringify(data))
 
       if (res.ok) {
-        alert('✅ Mise à jour réussie! Fermeture du formulaire...')
+        console.log('✅ Mise à jour réussie! Fermeture du formulaire...')
         setMessage('✅ Service modifié avec succès !')
         setEditingService(null)
-        alert('✅ Formulaire fermé!')
+        console.log('✅ Formulaire fermé!')
       } else {
-        alert('❌ Erreur serveur: ' + (data.error || 'Inconnue'))
+        console.error('❌ Erreur serveur: ' + (data.error || 'Inconnue'))
         setMessage('❌ Erreur serveur: ' + (data.error || 'Inconnue'))
       }
     } catch (err) {
-      alert('❌ Erreur: ' + err.message)
+      console.error('❌ Erreur: ' + err.message)
       setMessage('❌ Erreur lors de la modification: ' + err.message)
     }
   }
@@ -1287,18 +1331,117 @@ function AdminDashboard() {
                   <input placeholder="Nombre d'avis (ex: 15)" value={editingGarage.reviews_count} onChange={e => setEditingGarage({...editingGarage, reviews_count: e.target.value})} className="form-input" />
                   <input placeholder="Numéro de téléphone" value={editingGarage.phone || ''} onChange={e => setEditingGarage({...editingGarage, phone: e.target.value})} className="form-input" />
                   <input placeholder="Adresse complète (ex: 12 Rue Didouche Mourad, Alger)" value={editingGarage.address || ''} onChange={e => setEditingGarage({...editingGarage, address: e.target.value})} className="form-input" />
-                  <input placeholder="Horaires de travail (ex: 08:00 - 18:00)" value={editingGarage.working_hours || ''} onChange={e => setEditingGarage({...editingGarage, working_hours: e.target.value})} className="form-input" />
-                  <select value={editingGarage.working_days || ''} onChange={e => setEditingGarage({...editingGarage, working_days: e.target.value})} className="form-input" style={{color: editingGarage.working_days ? '#fff' : '#94a3b8'}}>
-                    <option value="" style={{color: '#000'}}>Jours de travail</option>
-                    <option value="Samedi-Jeudi" style={{color: '#000'}}>Samedi - Jeudi (7j/7)</option>
-                    <option value="Dimanche-Jeudi" style={{color: '#000'}}>Dimanche - Jeudi</option>
-                    <option value="Samedi-Vendredi" style={{color: '#000'}}>Samedi - Vendredi</option>
-                    <option value="Lundi-Vendredi" style={{color: '#000'}}>Lundi - Vendredi</option>
-                    <option value="Samedi" style={{color: '#000'}}>Samedi seulement</option>
-                    <option value="Dimanche" style={{color: '#000'}}>Dimanche seulement</option>
-                    <option value="Tous les jours" style={{color: '#000'}}>Tous les jours</option>
-                    <option value="Sur rendez-vous" style={{color: '#000'}}>Sur rendez-vous</option>
-                  </select>
+                  <div className="form-group">
+                    <label>Horaires de travail</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ color: '#64748b' }}>De :</span>
+                        <select 
+                          value={editOpeningTime}
+                          onChange={(e) => setEditOpeningTime(e.target.value)}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid #cbd5e1',
+                            backgroundColor: 'white',
+                            color: '#000000',
+                            fontSize: '14px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {timeSlots.map(time => (
+                            <option key={time} value={time} style={{color: '#000000', backgroundColor: '#ffffff'}}>{time}</option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ color: '#64748b' }}>À :</span>
+                        <select 
+                          value={editClosingTime}
+                          onChange={(e) => setEditClosingTime(e.target.value)}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid #cbd5e1',
+                            backgroundColor: 'white',
+                            color: '#000000',
+                            fontSize: '14px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {timeSlots.map(time => (
+                            <option key={time} value={time} style={{color: '#000000', backgroundColor: '#ffffff'}}>{time}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    
+                    <div style={{ marginTop: '12px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={sameHoursForAllDays}
+                          onChange={(e) => setSameHoursForAllDays(e.target.checked)}
+                          style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                        />
+                        <span style={{ color: '#475569', fontSize: '14px' }}>✓ Utiliser les mêmes horaires pour tous les jours</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label>Jours de travail</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '10px' }}>
+                      {[
+                        { key: 'sam', label: 'Sam' },
+                        { key: 'dim', label: 'Dim' },
+                        { key: 'lun', label: 'Lun' },
+                        { key: 'mar', label: 'Mar' },
+                        { key: 'mer', label: 'Mer' },
+                        { key: 'jeu', label: 'Jeu' },
+                        { key: 'ven', label: 'Ven' }
+                      ].map(day => (
+                        <button
+                          key={day.key}
+                          type="button"
+                          onClick={() => toggleDay(day.key, true)}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: '30px',
+                            border: 'none',
+                            backgroundColor: editWorkingDays.includes(day.key) ? '#E31837' : '#e2e8f0',
+                            color: editWorkingDays.includes(day.key) ? 'white' : '#1e293b',
+                            fontWeight: '500',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            minWidth: '55px'
+                          }}
+                        >
+                          {day.label}
+                          {editWorkingDays.includes(day.key) && ' ✓'}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => toggleAllDays(true)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        border: '1px solid #E31837',
+                        backgroundColor: 'transparent',
+                        color: '#E31837',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        marginTop: '5px'
+                      }}
+                    >
+                      ⋮ Tous les jours
+                    </button>
+                    <small style={{ color: '#64748b', display: 'block', marginTop: '8px' }}>
+                      Cliquez sur les jours pour sélectionner/déselectionner
+                    </small>
+                  </div>
                   <input placeholder="URL de l'image" value={editingGarage.image_url || ''} onChange={e => setEditingGarage({...editingGarage, image_url: e.target.value})} className="form-input" />
                   <input placeholder="Latitude" value={editingGarage.latitude || ''} onChange={e => setEditingGarage({...editingGarage, latitude: e.target.value})} className="form-input" />
                   <input placeholder="Longitude" value={editingGarage.longitude || ''} onChange={e => setEditingGarage({...editingGarage, longitude: e.target.value})} className="form-input" />
@@ -1346,18 +1489,117 @@ function AdminDashboard() {
                   <input placeholder="Nombre d'avis (ex: 15)" value={newGarage.reviews_count} onChange={e => setNewGarage({...newGarage, reviews_count: e.target.value})} className="form-input" />
                   <input placeholder="Numéro de téléphone" value={newGarage.phone} onChange={e => setNewGarage({...newGarage, phone: e.target.value})} className="form-input" />
                   <input placeholder="Adresse complète (ex: 12 Rue Didouche Mourad, Alger)" value={newGarage.address} onChange={e => setNewGarage({...newGarage, address: e.target.value})} className="form-input" />
-                  <input placeholder="Horaires de travail (ex: 08:00 - 18:00)" value={newGarage.working_hours} onChange={e => setNewGarage({...newGarage, working_hours: e.target.value})} className="form-input" />
-                  <select value={newGarage.working_days} onChange={e => setNewGarage({...newGarage, working_days: e.target.value})} className="form-input" style={{color: newGarage.working_days ? '#fff' : '#94a3b8'}}>
-                    <option value="" style={{color: '#000'}}>Jours de travail</option>
-                    <option value="Samedi-Jeudi" style={{color: '#000'}}>Samedi - Jeudi (7j/7)</option>
-                    <option value="Dimanche-Jeudi" style={{color: '#000'}}>Dimanche - Jeudi</option>
-                    <option value="Samedi-Vendredi" style={{color: '#000'}}>Samedi - Vendredi</option>
-                    <option value="Lundi-Vendredi" style={{color: '#000'}}>Lundi - Vendredi</option>
-                    <option value="Samedi" style={{color: '#000'}}>Samedi seulement</option>
-                    <option value="Dimanche" style={{color: '#000'}}>Dimanche seulement</option>
-                    <option value="Tous les jours" style={{color: '#000'}}>Tous les jours</option>
-                    <option value="Sur rendez-vous" style={{color: '#000'}}>Sur rendez-vous</option>
-                  </select>
+                  <div className="form-group">
+                    <label>Horaires de travail</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ color: '#64748b' }}>De :</span>
+                        <select 
+                          value={openingTime}
+                          onChange={(e) => setOpeningTime(e.target.value)}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid #cbd5e1',
+                            backgroundColor: 'white',
+                            color: '#000000',
+                            fontSize: '14px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {timeSlots.map(time => (
+                            <option key={time} value={time}>{time}</option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ color: '#64748b' }}>À :</span>
+                        <select 
+                          value={closingTime}
+                          onChange={(e) => setClosingTime(e.target.value)}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid #cbd5e1',
+                            backgroundColor: 'white',
+                            color: '#000000',
+                            fontSize: '14px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {timeSlots.map(time => (
+                            <option key={time} value={time}>{time}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    
+                    <div style={{ marginTop: '12px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={sameHoursForAllDays}
+                          onChange={(e) => setSameHoursForAllDays(e.target.checked)}
+                          style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                        />
+                        <span style={{ color: '#475569', fontSize: '14px' }}>✓ Utiliser les mêmes horaires pour tous les jours</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label>Jours de travail</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '10px' }}>
+                      {[
+                        { key: 'sam', label: 'Sam' },
+                        { key: 'dim', label: 'Dim' },
+                        { key: 'lun', label: 'Lun' },
+                        { key: 'mar', label: 'Mar' },
+                        { key: 'mer', label: 'Mer' },
+                        { key: 'jeu', label: 'Jeu' },
+                        { key: 'ven', label: 'Ven' }
+                      ].map(day => (
+                        <button
+                          key={day.key}
+                          type="button"
+                          onClick={() => toggleDay(day.key, false)}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: '30px',
+                            border: 'none',
+                            backgroundColor: workingDays.includes(day.key) ? '#E31837' : '#e2e8f0',
+                            color: workingDays.includes(day.key) ? 'white' : '#1e293b',
+                            fontWeight: '500',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            minWidth: '55px'
+                          }}
+                        >
+                          {day.label}
+                          {workingDays.includes(day.key) && ' ✓'}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => toggleAllDays(false)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        border: '1px solid #E31837',
+                        backgroundColor: 'transparent',
+                        color: '#E31837',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        marginTop: '5px'
+                      }}
+                    >
+                      ⋮ Tous les jours
+                    </button>
+                    <small style={{ color: '#64748b', display: 'block', marginTop: '8px' }}>
+                      Cliquez sur les jours pour sélectionner/déselectionner
+                    </small>
+                  </div>
                   <input placeholder="URL de l'image" value={newGarage.image_url} onChange={e => setNewGarage({...newGarage, image_url: e.target.value})} className="form-input" />
                   <input placeholder="Latitude" value={newGarage.latitude} onChange={e => setNewGarage({...newGarage, latitude: e.target.value})} className="form-input" />
                   <input placeholder="Longitude" value={newGarage.longitude} onChange={e => setNewGarage({...newGarage, longitude: e.target.value})} className="form-input" />
@@ -1493,18 +1735,117 @@ function AdminDashboard() {
                   <input placeholder="Nombre d'avis (ex: 15)" value={editingService.reviews_count} onChange={e => setEditingService({...editingService, reviews_count: e.target.value})} className="form-input" />
                   <input placeholder="Numéro de téléphone" value={editingService.phone || ''} onChange={e => setEditingService({...editingService, phone: e.target.value})} className="form-input" />
                   <textarea placeholder="Description du service" value={editingService.description || ''} onChange={e => setEditingService({...editingService, description: e.target.value})} className="form-input" rows="2" />
-                  <input placeholder="Horaires de travail (ex: 08:00 - 18:00)" value={editingService.working_hours || ''} onChange={e => setEditingService({...editingService, working_hours: e.target.value})} className="form-input" />
-                  <select value={editingService.working_days || ''} onChange={e => setEditingService({...editingService, working_days: e.target.value})} className="form-input" style={{color: editingService.working_days ? '#fff' : '#94a3b8'}}>
-                    <option value="" style={{color: '#000'}}>Jours de travail</option>
-                    <option value="Samedi-Jeudi" style={{color: '#000'}}>Samedi - Jeudi (7j/7)</option>
-                    <option value="Dimanche-Jeudi" style={{color: '#000'}}>Dimanche - Jeudi</option>
-                    <option value="Samedi-Vendredi" style={{color: '#000'}}>Samedi - Vendredi</option>
-                    <option value="Lundi-Vendredi" style={{color: '#000'}}>Lundi - Vendredi</option>
-                    <option value="Samedi" style={{color: '#000'}}>Samedi seulement</option>
-                    <option value="Dimanche" style={{color: '#000'}}>Dimanche seulement</option>
-                    <option value="Tous les jours" style={{color: '#000'}}>Tous les jours</option>
-                    <option value="Sur rendez-vous" style={{color: '#000'}}>Sur rendez-vous</option>
-                  </select>
+                  <div className="form-group">
+                    <label>Horaires de travail</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ color: '#64748b' }}>De :</span>
+                        <select 
+                          value={editOpeningTime}
+                          onChange={(e) => setEditOpeningTime(e.target.value)}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid #cbd5e1',
+                            backgroundColor: 'white',
+                            color: '#000000',
+                            fontSize: '14px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {timeSlots.map(time => (
+                            <option key={time} value={time}>{time}</option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ color: '#64748b' }}>À :</span>
+                        <select 
+                          value={editClosingTime}
+                          onChange={(e) => setEditClosingTime(e.target.value)}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid #cbd5e1',
+                            backgroundColor: 'white',
+                            color: '#000000',
+                            fontSize: '14px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {timeSlots.map(time => (
+                            <option key={time} value={time}>{time}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    
+                    <div style={{ marginTop: '12px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={sameHoursForAllDays}
+                          onChange={(e) => setSameHoursForAllDays(e.target.checked)}
+                          style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                        />
+                        <span style={{ color: '#475569', fontSize: '14px' }}>✓ Utiliser les mêmes horaires pour tous les jours</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label>Jours de travail</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '10px' }}>
+                      {[
+                        { key: 'sam', label: 'Sam' },
+                        { key: 'dim', label: 'Dim' },
+                        { key: 'lun', label: 'Lun' },
+                        { key: 'mar', label: 'Mar' },
+                        { key: 'mer', label: 'Mer' },
+                        { key: 'jeu', label: 'Jeu' },
+                        { key: 'ven', label: 'Ven' }
+                      ].map(day => (
+                        <button
+                          key={day.key}
+                          type="button"
+                          onClick={() => toggleDay(day.key, true)}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: '30px',
+                            border: 'none',
+                            backgroundColor: editWorkingDays.includes(day.key) ? '#E31837' : '#e2e8f0',
+                            color: editWorkingDays.includes(day.key) ? 'white' : '#1e293b',
+                            fontWeight: '500',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            minWidth: '55px'
+                          }}
+                        >
+                          {day.label}
+                          {editWorkingDays.includes(day.key) && ' ✓'}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => toggleAllDays(true)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        border: '1px solid #E31837',
+                        backgroundColor: 'transparent',
+                        color: '#E31837',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        marginTop: '5px'
+                      }}
+                    >
+                      ⋮ Tous les jours
+                    </button>
+                    <small style={{ color: '#64748b', display: 'block', marginTop: '8px' }}>
+                      Cliquez sur les jours pour sélectionner/déselectionner
+                    </small>
+                  </div>
                   <input placeholder="URL de l'image" value={editingService.image_url || ''} onChange={e => setEditingService({...editingService, image_url: e.target.value})} className="form-input" />
                   <input placeholder="Services proposés (séparés par virgule)" value={editingService.services_list} onChange={e => setEditingService({...editingService, services_list: e.target.value})} className="form-input" />
                   
@@ -1550,18 +1891,117 @@ function AdminDashboard() {
                   <input placeholder="Nombre d'avis (ex: 15)" value={newService.reviews_count} onChange={e => setNewService({...newService, reviews_count: e.target.value})} className="form-input" />
                   <input placeholder="Numéro de téléphone" value={newService.phone} onChange={e => setNewService({...newService, phone: e.target.value})} className="form-input" />
                   <textarea placeholder="Description du service" value={newService.description} onChange={e => setNewService({...newService, description: e.target.value})} className="form-input" rows="2" />
-                  <input placeholder="Horaires de travail (ex: 08:00 - 18:00)" value={newService.working_hours} onChange={e => setNewService({...newService, working_hours: e.target.value})} className="form-input" />
-                  <select value={newService.working_days} onChange={e => setNewService({...newService, working_days: e.target.value})} className="form-input" style={{color: newService.working_days ? '#fff' : '#94a3b8'}}>
-                    <option value="" style={{color: '#000'}}>Jours de travail</option>
-                    <option value="Samedi-Jeudi" style={{color: '#000'}}>Samedi - Jeudi (7j/7)</option>
-                    <option value="Dimanche-Jeudi" style={{color: '#000'}}>Dimanche - Jeudi</option>
-                    <option value="Samedi-Vendredi" style={{color: '#000'}}>Samedi - Vendredi</option>
-                    <option value="Lundi-Vendredi" style={{color: '#000'}}>Lundi - Vendredi</option>
-                    <option value="Samedi" style={{color: '#000'}}>Samedi seulement</option>
-                    <option value="Dimanche" style={{color: '#000'}}>Dimanche seulement</option>
-                    <option value="Tous les jours" style={{color: '#000'}}>Tous les jours</option>
-                    <option value="Sur rendez-vous" style={{color: '#000'}}>Sur rendez-vous</option>
-                  </select>
+                  <div className="form-group">
+                    <label>Horaires de travail</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ color: '#64748b' }}>De :</span>
+                        <select 
+                          value={openingTime}
+                          onChange={(e) => setOpeningTime(e.target.value)}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid #cbd5e1',
+                            backgroundColor: 'white',
+                            color: '#000000',
+                            fontSize: '14px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {timeSlots.map(time => (
+                            <option key={time} value={time}>{time}</option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ color: '#64748b' }}>À :</span>
+                        <select 
+                          value={closingTime}
+                          onChange={(e) => setClosingTime(e.target.value)}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid #cbd5e1',
+                            backgroundColor: 'white',
+                            color: '#000000',
+                            fontSize: '14px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {timeSlots.map(time => (
+                            <option key={time} value={time}>{time}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    
+                    <div style={{ marginTop: '12px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={sameHoursForAllDays}
+                          onChange={(e) => setSameHoursForAllDays(e.target.checked)}
+                          style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                        />
+                        <span style={{ color: '#475569', fontSize: '14px' }}>✓ Utiliser les mêmes horaires pour tous les jours</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label>Jours de travail</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '10px' }}>
+                      {[
+                        { key: 'sam', label: 'Sam' },
+                        { key: 'dim', label: 'Dim' },
+                        { key: 'lun', label: 'Lun' },
+                        { key: 'mar', label: 'Mar' },
+                        { key: 'mer', label: 'Mer' },
+                        { key: 'jeu', label: 'Jeu' },
+                        { key: 'ven', label: 'Ven' }
+                      ].map(day => (
+                        <button
+                          key={day.key}
+                          type="button"
+                          onClick={() => toggleDay(day.key, false)}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: '30px',
+                            border: 'none',
+                            backgroundColor: workingDays.includes(day.key) ? '#E31837' : '#e2e8f0',
+                            color: workingDays.includes(day.key) ? 'white' : '#1e293b',
+                            fontWeight: '500',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            minWidth: '55px'
+                          }}
+                        >
+                          {day.label}
+                          {workingDays.includes(day.key) && ' ✓'}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => toggleAllDays(false)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        border: '1px solid #E31837',
+                        backgroundColor: 'transparent',
+                        color: '#E31837',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        marginTop: '5px'
+                      }}
+                    >
+                      ⋮ Tous les jours
+                    </button>
+                    <small style={{ color: '#64748b', display: 'block', marginTop: '8px' }}>
+                      Cliquez sur les jours pour sélectionner/déselectionner
+                    </small>
+                  </div>
                   <input placeholder="URL de l'image" value={newService.image_url} onChange={e => setNewService({...newService, image_url: e.target.value})} className="form-input" />
                   <input placeholder="Services proposés (séparés par virgule)" value={newService.services_list} onChange={e => setNewService({...newService, services_list: e.target.value})} className="form-input" />
                   
